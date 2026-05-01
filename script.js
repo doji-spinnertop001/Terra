@@ -39,9 +39,13 @@ require(['vs/editor/editor.main'], function() {
   window.editor = monaco.editor.create(document.getElementById('editor'), {
     value: `@tenx --load --tx
 fn main():
-    let x = tx.tensor([1.0, 2.0, 3.0])
-    tx.say(x)
-    tx.say("ML Framework Loaded")`,
+    let name = "Terra Engine"
+    io.print(name)
+    let head = Node("Root Node")
+    io.print(head.data)
+    let weights = tx.tensor([0.5, -1.2, 3.4])
+    tx.say(weights)
+    io.print("All systems operational.")`,
     language: 'mojo',
     theme: 'mojo-theme',
     fontSize: 14,
@@ -63,15 +67,15 @@ async function runMojo() {
   for (let line of lines) {
     let clean = line.trim();
     
-    // NEW: Handle @tenx import
+    // 1. Handle @tenx import
     if (clean.startsWith("@tenx --load --tx")) {
       tenxLoaded = true;
       continue;
     }
 
-    if (!clean || clean.startsWith("struct") || clean.startsWith("var data") || clean.startsWith("var next")) continue;
+    if (!clean || clean.startsWith("struct") || clean.startsWith("var data") || clean.startsWith("var next") || clean.startsWith("fn") || clean.endsWith(":")) continue;
     
-    // Node Creation
+    // 2. Node Creation
     let nodeMatch = clean.match(/(?:var|let)\s+(\w+)\s*=\s*Node\((.*)\)/);
     if (nodeMatch) {
       let id = "obj_" + (nextId++);
@@ -80,31 +84,23 @@ async function runMojo() {
       continue;
     }
 
-    // NEW: Terra ML Framework (tx. functions)
-    if (tenxLoaded && clean.includes("tx.")) {
-      // Handle tx.tensor creation
+    // 3. Terra ML Framework (tx.tensor)
+    if (tenxLoaded) {
       let tensorMatch = clean.match(/(?:var|let)\s+(\w+)\s*=\s*tx\.tensor\((.*)\)/);
       if (tensorMatch) {
         vars[tensorMatch[1]] = "Tensor(" + tensorMatch[2] + ")";
         continue;
       }
+    }
 
-      // Handle tx.say (AI-vibe print)
-      if (clean.includes("tx.say(")) {
-        let content = clean.match(/tx\.say\((.*)\)/)[1].trim();
-        let val = vars[content] || content.replace(/["']/g, "");
-        outputDiv.innerHTML += `<span style="color: #d299ff;">[Terra-AI]:</span> ${val}<br>`;
-        continue;
-      }
-      
-      // Additional tx functions logic (Placeholders for ML operations)
-      if (clean.includes("tx.add") || clean.includes("tx.dot") || clean.includes("tx.sub")) {
-          // Logic for PyTorch-style math would go here
-          continue;
-      }
+    // 4. Variable Assignment (e.g., let y = 1)
+    let varMatch = clean.match(/(?:var|let)\s+(\w+)\s*=\s*(.*)/);
+    if (varMatch && !clean.includes("Node(") && !clean.includes("tx.")) {
+      vars[varMatch[1]] = varMatch[2].replace(/["']/g, '').trim();
+      continue;
     }
     
-    // Linked List Linking
+    // 5. Linked List Linking
     if (clean.includes(".next = Node(")) {
       let parts = clean.split(".next = Node(");
       let parentVar = parts[0].trim();
@@ -119,7 +115,7 @@ async function runMojo() {
       continue;
     }
     
-    // Variable reassignment (curr = curr.next)
+    // 6. Variable reassignment (curr = curr.next)
     if (clean.match(/^\w+\s*=\s*\w+\.next$/)) {
       let parts = clean.split('=');
       let targetVar = parts[0].trim();
@@ -128,26 +124,34 @@ async function runMojo() {
       continue;
     }
     
-    // IO Printing
-    if (clean.includes("io.print(")) {
-      let match = clean.match(/io\.print\((.*)\)/);
+    // 7. IO Printing & TX Say
+    let isPrint = clean.includes("io.print(");
+    let isSay = tenxLoaded && clean.includes("tx.say(");
+
+    if (isPrint || isSay) {
+      let pattern = isPrint ? /io\.print\((.*)\)/ : /tx\.say\((.*)\)/;
+      let match = clean.match(pattern);
       if (match) {
         let content = match[1].trim();
+        let prefix = isSay ? `<span style="color: #d299ff;">[Terra-AI]:</span> ` : "";
+        let finalOutput = "";
+
         if (content.includes(".data")) {
           let varName = content.split('.')[0];
           let objId = vars[varName];
-          outputDiv.innerHTML += (objId && heap[objId] ? heap[objId].data : "NullPointerError") + "<br>";
+          finalOutput = (objId && heap[objId] ? heap[objId].data : "NullPointerError");
         } 
         else if (vars.hasOwnProperty(content)) {
           let value = vars[content];
-          outputDiv.innerHTML += (heap[value] ? heap[value].data : value) + "<br>";
+          finalOutput = (heap[value] ? heap[value].data : value);
         } 
         else if (content.startsWith('"') || content.startsWith("'")) {
-          outputDiv.innerHTML += content.replace(/["']/g, "") + "<br>";
+          finalOutput = content.replace(/["']/g, "");
         } 
         else {
-          outputDiv.innerHTML += content + "<br>";
+          finalOutput = content;
         }
+        outputDiv.innerHTML += prefix + finalOutput + "<br>";
       }
     }
   }
