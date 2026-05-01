@@ -93,17 +93,30 @@ async function runMojo() {
     }
     
     // IO Printing
-    if (clean.includes("io.print(")) {
-      let content = clean.match(/io\.print\((.*)\)/)[1];
-      if (content.includes(".data")) {
-        let varName = content.split('.')[0];
-        let objId = vars[varName];
-        outputDiv.innerHTML += (objId ? heap[objId].data : "NullPointerError") + "<br>";
-      } else {
-        outputDiv.innerHTML += content.replace(/["']/g, 'Error:\n\t<code.syntax!> ~~Syntax Error | Compile Error!') + "<br>";
-        
-      }
-    }
+  if (clean.includes("io.print(")) {
+  let content = clean.match(/io\.print\((.*)\)/)[1].trim();
+
+  // 1. Handle object properties (e.g., y.data)
+  if (content.includes(".data")) {
+    let varName = content.split('.')[0];
+    let objId = vars[varName];
+    outputDiv.innerHTML += (objId ? heap[objId].data : "NullPointerError") + "<br>";
+  } 
+  
+  // 2. Handle direct variables (e.g., io.print(y))
+  else if (vars.hasOwnProperty(content)) {
+    outputDiv.innerHTML += vars[content] + "<br>";
+  } 
+  
+  // 3. Handle string literals (e.g., io.print("hello"))
+  else if (content.startsWith('"') || content.startsWith("'")) {
+    outputDiv.innerHTML += content.replace(/["']/g, "") + "<br>";
+  } 
+  
+  // 4. Fallback for undefined references
+  else {
+    outputDiv.innerHTML += `<span style="color:red">ReferenceError: ${content} is not defined</span><br>`;
   }
+}
   outputDiv.innerHTML += "<br><span style='color:white'><b>Process finished with exit code 0</b></span>";
 }
