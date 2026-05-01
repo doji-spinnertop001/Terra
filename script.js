@@ -37,9 +37,11 @@ require(['vs/editor/editor.main'], function() {
   
   window.editor = monaco.editor.create(document.getElementById('editor'), {
     value: `fn main():
-    let y = Node("Hello World")
-    io.print(y.data)
-    io.print(y)`,
+    let y = 1
+    io.print(y)
+    let n = Node("Hello World")
+    io.print(n.data)
+    io.print("Done")`,
     language: 'mojo',
     theme: 'mojo-theme',
     fontSize: 14,
@@ -59,7 +61,7 @@ async function runMojo() {
   
   for (let line of lines) {
     let clean = line.trim();
-    if (!clean || clean.startsWith("struct") || clean.startsWith("var data") || clean.startsWith("var next")) continue;
+    if (!clean || clean.startsWith("struct") || clean.startsWith("var data") || clean.startsWith("var next") || clean.startsWith("fn") || clean.endsWith(":")) continue;
     
     // Node Creation
     let nodeMatch = clean.match(/(?:var|let)\s+(\w+)\s*=\s*Node\((.*)\)/);
@@ -69,6 +71,13 @@ async function runMojo() {
       vars[nodeMatch[1]] = id;
       continue;
     }
+
+    // Simple Variable Assignment (e.g., let y = 1)
+    let varMatch = clean.match(/(?:var|let)\s+(\w+)\s*=\s*(.*)/);
+    if (varMatch && !clean.includes("Node(")) {
+      vars[varMatch[1]] = varMatch[2].replace(/["']/g, '').trim();
+      continue;
+    }
     
     // Linked List Linking
     if (clean.includes(".next = Node(")) {
@@ -76,12 +85,14 @@ async function runMojo() {
       let parentVar = parts[0].trim();
       let val = parts[1].replace(/\)/, '').trim();
       let childId = "obj_" + (nextId++);
-      heap[childId] = { data: val, next: null };
+      heap[childId] = { data: val.replace(/["']/g, ''), next: null };
       
       let chain = parentVar.split('.');
       let targetId = vars[chain[0]];
-      for (let i = 1; i < chain.length; i++) targetId = heap[targetId].next;
-      heap[targetId].next = childId;
+      for (let i = 1; i < chain.length; i++) {
+          if(targetId && heap[targetId]) targetId = heap[targetId].next;
+      }
+      if(targetId && heap[targetId]) heap[targetId].next = childId;
       continue;
     }
     
@@ -89,14 +100,19 @@ async function runMojo() {
     if (clean.match(/^\w+\s*=\s*\w+\.next$/)) {
       let parts = clean.split('=');
       let targetVar = parts[0].trim();
-      let sourceVar = parts[1].trim().split('.')[0];
-      vars[targetVar] = heap[vars[sourceVar]].next;
+      let sourceParts = parts[1].trim().split('.');
+      let sourceVar = sourceParts[0];
+      if(vars[sourceVar] && heap[vars[sourceVar]]) {
+          vars[targetVar] = heap[vars[sourceVar]].next;
+      }
       continue;
     }
     
-    // IO Printing (Fixed Section)
+    // IO Printing
     if (clean.includes("io.print(")) {
-      let content = clean.match(/io\.print\((.*)\)/)[1].trim();
+      let contentMatch = clean.match(/io\.print\((.*)\)/);
+      if (!contentMatch) continue;
+      let content = contentMatch[1].trim();
 
       // 1. Handle object properties (e.g., y.data)
       if (content.includes(".data")) {
@@ -108,6 +124,7 @@ async function runMojo() {
       // 2. Handle direct variables (e.g., io.print(y))
       else if (vars.hasOwnProperty(content)) {
         let val = vars[content];
+        // If it's a pointer to the heap, print data, otherwise print the literal value
         outputDiv.innerHTML += (heap[val] ? heap[val].data : val) + "<br>";
       } 
       
@@ -116,7 +133,7 @@ async function runMojo() {
         outputDiv.innerHTML += content.replace(/["']/g, "") + "<br>";
       } 
       
-      // 4. Fallback for constants/numbers or raw text
+      // 4. Fallback for constants/numbers
       else {
         outputDiv.innerHTML += content + "<br>";
       }
