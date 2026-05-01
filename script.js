@@ -1,7 +1,6 @@
 require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.45.0/min/vs' } });
 
 require(['vs/editor/editor.main'], function() {
-  // Custom Theme
   monaco.editor.defineTheme('mojo-theme', {
     base: 'vs-dark',
     inherit: true,
@@ -20,7 +19,6 @@ require(['vs/editor/editor.main'], function() {
     }
   });
   
-  // Register Mojo Language
   monaco.languages.register({ id: 'mojo' });
   monaco.languages.setMonarchTokensProvider('mojo', {
     tokenizer: {
@@ -39,13 +37,15 @@ require(['vs/editor/editor.main'], function() {
   window.editor = monaco.editor.create(document.getElementById('editor'), {
     value: `@tenx --load --tx
 fn main():
-    let name = "Terra Engine"
-    io.print(name)
-    let head = Node("Root Node")
-    io.print(head.data)
-    let weights = tx.tensor([0.5, -1.2, 3.4])
-    tx.say(weights)
-    io.print("All systems operational.")`,
+    let framework = "Terra ML"
+    io.print(framework)
+    let node1 = Node("Data_A")
+    node1.next = Node("Data_B")
+    io.print(node1.data)
+    let curr = node1.next
+    io.print(curr.data)
+    let weights = tx.tensor([0.5, 2.0])
+    tx.say(weights)`,
     language: 'mojo',
     theme: 'mojo-theme',
     fontSize: 14,
@@ -66,16 +66,14 @@ async function runMojo() {
   
   for (let line of lines) {
     let clean = line.trim();
-    
-    // 1. Handle @tenx import
+    if (!clean || clean.startsWith("fn") || clean.endsWith(":")) continue;
+
     if (clean.startsWith("@tenx --load --tx")) {
       tenxLoaded = true;
       continue;
     }
 
-    if (!clean || clean.startsWith("struct") || clean.startsWith("var data") || clean.startsWith("var next") || clean.startsWith("fn") || clean.endsWith(":")) continue;
-    
-    // 2. Node Creation
+    // 1. Node Creation
     let nodeMatch = clean.match(/(?:var|let)\s+(\w+)\s*=\s*Node\((.*)\)/);
     if (nodeMatch) {
       let id = "obj_" + (nextId++);
@@ -84,7 +82,7 @@ async function runMojo() {
       continue;
     }
 
-    // 3. Terra ML Framework (tx.tensor)
+    // 2. Terra ML Framework
     if (tenxLoaded) {
       let tensorMatch = clean.match(/(?:var|let)\s+(\w+)\s*=\s*tx\.tensor\((.*)\)/);
       if (tensorMatch) {
@@ -93,65 +91,53 @@ async function runMojo() {
       }
     }
 
-    // 4. Variable Assignment (e.g., let y = 1)
-    let varMatch = clean.match(/(?:var|let)\s+(\w+)\s*=\s*(.*)/);
-    if (varMatch && !clean.includes("Node(") && !clean.includes("tx.")) {
-      vars[varMatch[1]] = varMatch[2].replace(/["']/g, '').trim();
+    // 3. General Variable Assignment (Matches: let x = "val" or let x = y.next)
+    let assignMatch = clean.match(/(?:var|let)\s+(\w+)\s*=\s*(.*)/);
+    if (assignMatch) {
+      let varName = assignMatch[1].trim();
+      let expression = assignMatch[2].trim();
+      
+      if (expression.includes(".next")) {
+        let parent = expression.split('.')[0];
+        vars[varName] = heap[vars[parent]] ? heap[vars[parent]].next : null;
+      } else {
+        vars[varName] = expression.replace(/["']/g, '');
+      }
       continue;
     }
     
-    // 5. Linked List Linking
+    // 4. Linked List Linking (node.next = Node(...))
     if (clean.includes(".next = Node(")) {
-      let parts = clean.split(".next = Node(");
-      let parentVar = parts[0].trim();
-      let val = parts[1].replace(/\)/, '').trim();
+      let parentVar = clean.split(".next")[0].trim();
+      let val = clean.match(/Node\((.*)\)/)[1].replace(/["']/g, '');
       let childId = "obj_" + (nextId++);
       heap[childId] = { data: val, next: null };
-      
-      let chain = parentVar.split('.');
-      let targetId = vars[chain[0]];
-      for (let i = 1; i < chain.length; i++) targetId = heap[targetId].next;
-      heap[targetId].next = childId;
+      if (vars[parentVar]) heap[vars[parentVar]].next = childId;
       continue;
     }
     
-    // 6. Variable reassignment (curr = curr.next)
-    if (clean.match(/^\w+\s*=\s*\w+\.next$/)) {
-      let parts = clean.split('=');
-      let targetVar = parts[0].trim();
-      let sourceVar = parts[1].trim().split('.')[0];
-      vars[targetVar] = heap[vars[sourceVar]].next;
-      continue;
-    }
-    
-    // 7. IO Printing & TX Say
+    // 5. IO Printing & TX Say
     let isPrint = clean.includes("io.print(");
     let isSay = tenxLoaded && clean.includes("tx.say(");
 
     if (isPrint || isSay) {
-      let pattern = isPrint ? /io\.print\((.*)\)/ : /tx\.say\((.*)\)/;
-      let match = clean.match(pattern);
+      let match = clean.match(/\((.*)\)/);
       if (match) {
         let content = match[1].trim();
         let prefix = isSay ? `<span style="color: #d299ff;">[Terra-AI]:</span> ` : "";
-        let finalOutput = "";
+        let result = "";
 
         if (content.includes(".data")) {
-          let varName = content.split('.')[0];
-          let objId = vars[varName];
-          finalOutput = (objId && heap[objId] ? heap[objId].data : "NullPointerError");
-        } 
-        else if (vars.hasOwnProperty(content)) {
-          let value = vars[content];
-          finalOutput = (heap[value] ? heap[value].data : value);
-        } 
-        else if (content.startsWith('"') || content.startsWith("'")) {
-          finalOutput = content.replace(/["']/g, "");
-        } 
-        else {
-          finalOutput = content;
+          let parts = content.split('.');
+          let targetId = vars[parts[0]];
+          result = (targetId && heap[targetId]) ? heap[targetId].data : "NullPointerError";
+        } else if (vars.hasOwnProperty(content)) {
+          let val = vars[content];
+          result = (heap[val]) ? heap[val].data : val;
+        } else {
+          result = content.replace(/["']/g, "");
         }
-        outputDiv.innerHTML += prefix + finalOutput + "<br>";
+        outputDiv.innerHTML += prefix + result + "<br>";
       }
     }
   }
