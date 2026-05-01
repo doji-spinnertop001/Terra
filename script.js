@@ -30,16 +30,18 @@ require(['vs/editor/editor.main'], function() {
         [/@\w+/, 'decorator'],
         [/"[^"]*"/, 'string'],
         [/#.*$/, 'comment'],
-        [/io\.(print|input)/, 'keyword']
+        [/io\.(print|input)/, 'keyword'],
+        [/tx\.(tensor|pow|gradient_descent|derivative|integrate|dot|add|sub|mod|say|ask)/, 'keyword']
       ]
     }
   });
   
   window.editor = monaco.editor.create(document.getElementById('editor'), {
-    value: `fn main():
-    let y = Node("Hello World")
-    io.print(y.data)
-    io.print(y)`,
+    value: `@tenx --load --tx
+fn main():
+    let x = tx.tensor([1.0, 2.0, 3.0])
+    tx.say(x)
+    tx.say("ML Framework Loaded")`,
     language: 'mojo',
     theme: 'mojo-theme',
     fontSize: 14,
@@ -56,9 +58,17 @@ async function runMojo() {
   let heap = {};
   let vars = {};
   let nextId = 1;
+  let tenxLoaded = false;
   
   for (let line of lines) {
     let clean = line.trim();
+    
+    // NEW: Handle @tenx import
+    if (clean.startsWith("@tenx --load --tx")) {
+      tenxLoaded = true;
+      continue;
+    }
+
     if (!clean || clean.startsWith("struct") || clean.startsWith("var data") || clean.startsWith("var next")) continue;
     
     // Node Creation
@@ -68,6 +78,30 @@ async function runMojo() {
       heap[id] = { data: nodeMatch[2].replace(/["']/g, ''), next: null };
       vars[nodeMatch[1]] = id;
       continue;
+    }
+
+    // NEW: Terra ML Framework (tx. functions)
+    if (tenxLoaded && clean.includes("tx.")) {
+      // Handle tx.tensor creation
+      let tensorMatch = clean.match(/(?:var|let)\s+(\w+)\s*=\s*tx\.tensor\((.*)\)/);
+      if (tensorMatch) {
+        vars[tensorMatch[1]] = "Tensor(" + tensorMatch[2] + ")";
+        continue;
+      }
+
+      // Handle tx.say (AI-vibe print)
+      if (clean.includes("tx.say(")) {
+        let content = clean.match(/tx\.say\((.*)\)/)[1].trim();
+        let val = vars[content] || content.replace(/["']/g, "");
+        outputDiv.innerHTML += `<span style="color: #d299ff;">[Terra-AI]:</span> ${val}<br>`;
+        continue;
+      }
+      
+      // Additional tx functions logic (Placeholders for ML operations)
+      if (clean.includes("tx.add") || clean.includes("tx.dot") || clean.includes("tx.sub")) {
+          // Logic for PyTorch-style math would go here
+          continue;
+      }
     }
     
     // Linked List Linking
@@ -99,24 +133,18 @@ async function runMojo() {
       let match = clean.match(/io\.print\((.*)\)/);
       if (match) {
         let content = match[1].trim();
-
-        // Check if printing an object property (e.g., y.data)
         if (content.includes(".data")) {
           let varName = content.split('.')[0];
           let objId = vars[varName];
           outputDiv.innerHTML += (objId && heap[objId] ? heap[objId].data : "NullPointerError") + "<br>";
         } 
-        // Check if printing a variable name (e.g., y)
         else if (vars.hasOwnProperty(content)) {
           let value = vars[content];
-          // If the variable points to a heap object, print its data property
           outputDiv.innerHTML += (heap[value] ? heap[value].data : value) + "<br>";
         } 
-        // Check if printing a string literal (e.g., "Hello")
         else if (content.startsWith('"') || content.startsWith("'")) {
           outputDiv.innerHTML += content.replace(/["']/g, "") + "<br>";
         } 
-        // Otherwise, print the content as a raw value (numbers, etc)
         else {
           outputDiv.innerHTML += content + "<br>";
         }
