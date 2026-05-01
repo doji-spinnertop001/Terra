@@ -37,11 +37,9 @@ require(['vs/editor/editor.main'], function() {
   
   window.editor = monaco.editor.create(document.getElementById('editor'), {
     value: `fn main():
-    let y = 1
-    io.print(y)
-    let n = Node("Hello World")
-    io.print(n.data)
-    io.print("Done")`,
+    let y = Node("Hello World")
+    io.print(y.data)
+    io.print(y)`,
     language: 'mojo',
     theme: 'mojo-theme',
     fontSize: 14,
@@ -61,7 +59,7 @@ async function runMojo() {
   
   for (let line of lines) {
     let clean = line.trim();
-    if (!clean || clean.startsWith("struct") || clean.startsWith("var data") || clean.startsWith("var next") || clean.startsWith("fn") || clean.endsWith(":")) continue;
+    if (!clean || clean.startsWith("struct") || clean.startsWith("var data") || clean.startsWith("var next")) continue;
     
     // Node Creation
     let nodeMatch = clean.match(/(?:var|let)\s+(\w+)\s*=\s*Node\((.*)\)/);
@@ -71,13 +69,6 @@ async function runMojo() {
       vars[nodeMatch[1]] = id;
       continue;
     }
-
-    // Simple Variable Assignment (e.g., let y = 1)
-    let varMatch = clean.match(/(?:var|let)\s+(\w+)\s*=\s*(.*)/);
-    if (varMatch && !clean.includes("Node(")) {
-      vars[varMatch[1]] = varMatch[2].replace(/["']/g, '').trim();
-      continue;
-    }
     
     // Linked List Linking
     if (clean.includes(".next = Node(")) {
@@ -85,14 +76,12 @@ async function runMojo() {
       let parentVar = parts[0].trim();
       let val = parts[1].replace(/\)/, '').trim();
       let childId = "obj_" + (nextId++);
-      heap[childId] = { data: val.replace(/["']/g, ''), next: null };
+      heap[childId] = { data: val, next: null };
       
       let chain = parentVar.split('.');
       let targetId = vars[chain[0]];
-      for (let i = 1; i < chain.length; i++) {
-          if(targetId && heap[targetId]) targetId = heap[targetId].next;
-      }
-      if(targetId && heap[targetId]) heap[targetId].next = childId;
+      for (let i = 1; i < chain.length; i++) targetId = heap[targetId].next;
+      heap[targetId].next = childId;
       continue;
     }
     
@@ -100,42 +89,37 @@ async function runMojo() {
     if (clean.match(/^\w+\s*=\s*\w+\.next$/)) {
       let parts = clean.split('=');
       let targetVar = parts[0].trim();
-      let sourceParts = parts[1].trim().split('.');
-      let sourceVar = sourceParts[0];
-      if(vars[sourceVar] && heap[vars[sourceVar]]) {
-          vars[targetVar] = heap[vars[sourceVar]].next;
-      }
+      let sourceVar = parts[1].trim().split('.')[0];
+      vars[targetVar] = heap[vars[sourceVar]].next;
       continue;
     }
     
     // IO Printing
     if (clean.includes("io.print(")) {
-      let contentMatch = clean.match(/io\.print\((.*)\)/);
-      if (!contentMatch) continue;
-      let content = contentMatch[1].trim();
+      let match = clean.match(/io\.print\((.*)\)/);
+      if (match) {
+        let content = match[1].trim();
 
-      // 1. Handle object properties (e.g., y.data)
-      if (content.includes(".data")) {
-        let varName = content.split('.')[0];
-        let objId = vars[varName];
-        outputDiv.innerHTML += (objId && heap[objId] ? heap[objId].data : "NullPointerError") + "<br>";
-      } 
-      
-      // 2. Handle direct variables (e.g., io.print(y))
-      else if (vars.hasOwnProperty(content)) {
-        let val = vars[content];
-        // If it's a pointer to the heap, print data, otherwise print the literal value
-        outputDiv.innerHTML += (heap[val] ? heap[val].data : val) + "<br>";
-      } 
-      
-      // 3. Handle string literals (e.g., io.print("hello"))
-      else if (content.startsWith('"') || content.startsWith("'")) {
-        outputDiv.innerHTML += content.replace(/["']/g, "") + "<br>";
-      } 
-      
-      // 4. Fallback for constants/numbers
-      else {
-        outputDiv.innerHTML += content + "<br>";
+        // Check if printing an object property (e.g., y.data)
+        if (content.includes(".data")) {
+          let varName = content.split('.')[0];
+          let objId = vars[varName];
+          outputDiv.innerHTML += (objId && heap[objId] ? heap[objId].data : "NullPointerError") + "<br>";
+        } 
+        // Check if printing a variable name (e.g., y)
+        else if (vars.hasOwnProperty(content)) {
+          let value = vars[content];
+          // If the variable points to a heap object, print its data property
+          outputDiv.innerHTML += (heap[value] ? heap[value].data : value) + "<br>";
+        } 
+        // Check if printing a string literal (e.g., "Hello")
+        else if (content.startsWith('"') || content.startsWith("'")) {
+          outputDiv.innerHTML += content.replace(/["']/g, "") + "<br>";
+        } 
+        // Otherwise, print the content as a raw value (numbers, etc)
+        else {
+          outputDiv.innerHTML += content + "<br>";
+        }
       }
     }
   }
