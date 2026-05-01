@@ -100,7 +100,8 @@ async function runMojo() {
         let objId = vars[varName];
         outputDiv.innerHTML += (objId ? heap[objId].data : "NullPointerError") + "<br>";
       } else {
-        outputDiv.innerHTML += content.replace(/["']/g, '') + "<br>";
+        outputDiv.innerHTML += content.replace(/["']/g, 'Error:\n\t<code.syntax!> ~~Syntax Error | Compile Error!') + "<br>";
+        
       }
     }
   }
